@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: max_k_cut
+Version: 0.0.4
+Summary: Max k-cut problem
+Home-page: https://github/qcol-lu/maxkcut
+Author: Ramin Fakhimi, Hamidreza Validi
+Author-email: fakhimi@lehigh.edu
+Dynamic: author
+Dynamic: author-email
+Dynamic: home-page
+Dynamic: summary
