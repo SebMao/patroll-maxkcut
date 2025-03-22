@@ -116,3 +116,62 @@ Solution count 5: 156.447 150.241 145.771 ... 120.82
 
 Optimal solution found (tolerance 0.00e+00)
 Best objective 1.564465370149e+02, best bound 1.564465370149e+02, gap 0.0000%
+
+Gurobi 12.0.1 (linux64) logging started Sat Mar 22 15:17:18 2025
+
+Set parameter LogFile to value "./results/k02_n049_d100/k02_n009_d100__BQO_log.txt"
+Gurobi Optimizer version 12.0.1 build v12.0.1rc0 (linux64 - "Ubuntu 22.04.5 LTS")
+
+CPU model: Intel(R) Core(TM) i9-14900K, instruction set [SSE2|AVX|AVX2]
+Thread count: 32 physical cores, 32 logical processors, using up to 10 threads
+
+Non-default parameters:
+TimeLimit  3.5999982123374939e+03
+MIPGap  0
+LogToConsole  0
+NonConvex  2
+Threads  10
+
+Optimize a model with 9 rows, 18 columns and 18 nonzeros
+Model fingerprint: 0x8f914825
+Model has 72 quadratic objective terms
+Model has 1 quadratic constraint
+Variable types: 0 continuous, 18 integer (18 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  QMatrix range    [2e+00, 8e+00]
+  Objective range  [0e+00, 0e+00]
+  QObjective range [4e+00, 3e+01]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [1e+00, 1e+00]
+  QRHS range       [4e+01, 4e+01]
+Presolve removed 9 rows and 10 columns
+Presolve time: 0.00s
+Presolved: 85 rows, 36 columns, 227 nonzeros
+Variable types: 0 continuous, 36 integer (36 binary)
+Found heuristic solution: objective 120.8195275
+Found heuristic solution: objective 134.1216587
+
+Root relaxation: objective 1.591448e+02, 36 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0  159.14479    0   21  134.12166  159.14479  18.7%     -    0s
+H    0     0                     145.7710806  159.14479  9.17%     -    0s
+H    0     0                     150.2405394  159.14479  5.93%     -    0s
+H    0     0                     156.4465370  159.14479  1.72%     -    0s
+
+Cutting planes:
+  Gomory: 1
+  Zero half: 10
+  RLT: 8
+  BQP: 12
+
+Explored 1 nodes (36 simplex iterations) in 0.00 seconds (0.00 work units)
+Thread count was 10 (of 32 available processors)
+
+Solution count 5: 156.447 150.241 145.771 ... 120.82
+
+Optimal solution found (tolerance 0.00e+00)
+Best objective 1.564465370149e+02, best bound 1.564465370149e+02, gap 0.0000%

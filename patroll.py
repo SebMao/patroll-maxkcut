@@ -80,7 +80,28 @@ def solve_robot_distribution_brute_force(partition, weights, m, distance_matrix)
             best_time = max_time
             best_assignment = assignment
 
-    return best_assignment, best_time
+            # 计算停留时间
+            best_dwell_times = {i: 0 for i in range(len(weights))}  # 初始化所有节点停留时间
+            for j, robots in enumerate(best_assignment):
+                nodes = partition[j]
+                if robots == 0:
+                    continue
+
+                sorted_nodes = sorted(nodes, key=lambda i: weights[i], reverse=True)  # 按权重排序
+                phi_max_nodes = sorted_nodes[:robots]  # 取前 `robots` 个点
+                phi_min_nodes = sorted_nodes[robots:]  # 其余点
+
+                if not phi_min_nodes:
+                    continue
+
+                phi_1 = max(weights[i] for i in phi_min_nodes)  # 计算 `φ_1`
+
+                for i in phi_max_nodes:
+                    phi_alpha = weights[i]
+                    best_dwell_times[i] = (phi_alpha - phi_1) / (phi_alpha * phi_1) * best_time  # 计算 `δ_α`
+
+
+    return best_assignment, best_time, best_dwell_times
 
 
 
@@ -157,37 +178,42 @@ def find_best_patrolling_plan(coords, weights, m):
     best_time = float('inf')
     best_partition = None
     best_assignment = None
+    best_dwell_times = None
 
     for k in range(2, m + 1):  # 2个子图到m个子图的情况
         G = create_graph(coords)
         partition = maxKcut(G, k)
-        assignment, max_refresh_time = solve_robot_distribution_brute_force(partition, weights, m, distance_matrix)
+        assignment, max_refresh_time, dwell_times = solve_robot_distribution_brute_force(partition, weights, m, distance_matrix)
         print(max_refresh_time, k)
         if max_refresh_time < best_time:
             best_time = max_refresh_time
             best_partition = partition
             best_assignment = assignment
+            best_dwell_times = dwell_times
     
     # 单独处理不分割的情况
     partition = {0: list(range(n))}
-    assignment, max_refresh_time = solve_robot_distribution_brute_force(partition, weights, m, distance_matrix)
+    assignment, max_refresh_time, dwell_times_nocut = solve_robot_distribution_brute_force(partition, weights, m, distance_matrix)
     if max_refresh_time < best_time:
         best_time = max_refresh_time
         best_partition = partition
         best_assignment = assignment
+        best_dwell_times = dwell_times_nocut
     
-    return best_partition, best_assignment, best_time
+    return best_partition, best_assignment, best_time, best_dwell_times
 
 coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5)]
 weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0]
 m = 3
 
-best_partition, best_assignment, best_time = find_best_patrolling_plan(coords, weights, m)
+best_partition, best_assignment, best_time, best_dwell_times = find_best_patrolling_plan(coords, weights, m)
 print("最优分割方案:", best_partition)
 print("最优机器人分配方案 (子图编号: 机器人数量):")
 for i, robots in enumerate(best_assignment):
     print(f" - 子图 {i}: {robots} 个机器人")
 print("最小的最大刷新时间:", best_time)
+for i, time in best_dwell_times.items():
+    print(f"节点 {i} 的停留时间: {time}")
 plot_patrolling_plan(coords, best_partition, {i: robots for i, robots in enumerate(best_assignment)})
 
 
