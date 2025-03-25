@@ -38,9 +38,14 @@ def tsp_length_and_path(subset, distance_matrix):
     G = nx.complete_graph(len(subset))
     for i, j in G.edges():
         G[i][j]['weight'] = subgraph[i, j]
-    tsp_path = nx.approximation.traveling_salesman_problem(G, cycle=True)
-    print("tsp_path", tsp_path)
-    return sum(subgraph[tsp_path[i], tsp_path[i+1]] for i in range(len(tsp_path)-1)), tsp_path
+    tsp_path_local = nx.approximation.traveling_salesman_problem(G, cycle=True)
+    # print("局部编号的tsp路径:", tsp_path_local)
+    # 将局部编号转换为全局编号
+    index_mapping = {i: subset[i] for i in range(len(subset))}
+    tsp_path_global = [index_mapping[i] for i in tsp_path_local]
+    # print("全局编号的tsp路径:", tsp_path_global)
+    path_length = sum(subgraph[tsp_path_local[i], tsp_path_local[i+1]] for i in range(len(tsp_path_local)-1))
+    return path_length, tsp_path_global
 
 def solve_robot_distribution_brute_force(partition, weights, m, distance_matrix):
     """
@@ -317,8 +322,8 @@ def solve_intial_position(partition, coords, assignment, global_dwell_times, ref
     global_index = 0
     for i, robots in enumerate(assignment):
         nodes = partition[i]
-        dwell_times_par = [global_dwell_times[i] for i in nodes]
-        robot_0_traj = calculate_trajectory_for_robot_0(tsp_path=tsp_paths[i], dwell_times=dwell_times_par, distance_matrix = distance_matrix_ )
+        # dwell_times_par = [global_dwell_times[i] for i in nodes]
+        robot_0_traj = calculate_trajectory_for_robot_0(tsp_path=tsp_paths[i], dwell_times=global_dwell_times, distance_matrix = distance_matrix_ )
         # initial_positions[global_index] = robot_initial_position
         for t in range(robots):
             initial_positions[global_index+t] = get_robot_initial_position(robot_0_traj, robots, refresh_times[i], phi1_dict[i],t)
@@ -336,13 +341,14 @@ best_partition, best_assignment, best_time, best_dwell_times, best_refresh_times
 plot_patrolling_plan(coords, best_partition, {i: robots for i, robots in enumerate(best_assignment)})
 initial_positions = solve_intial_position(best_partition, coords, best_assignment, best_dwell_times, best_refresh_times, best_phi1_dict)
 
-for i in range(m):
-    initial_position = initial_positions[i]
-    print(f"机器人 {i} 的initial position: {initial_position}")
 print("最优分割方案:", best_partition)
 print("最优机器人分配方案 (子图编号: 机器人数量):")
 for i, robots in enumerate(best_assignment):
     print(f" - 子图 {i}: {robots} 个机器人")
+
+for i in range(m):
+    initial_position = initial_positions[i]
+    print(f"机器人 {i} 的initial position: {initial_position}")
 print("最小的最大刷新时间:", best_time)
 for i, time in best_dwell_times.items():
     print(f"节点 {i} 的停留时间: {time}")
