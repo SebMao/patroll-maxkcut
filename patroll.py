@@ -131,13 +131,14 @@ def generate_valid_assignments(m, k):
         yield tuple(assignment)
 
 
-def plot_patrolling_plan(coords, partition, robot_assignment):
+def plot_patrolling_plan(coords, partition, robot_assignment, initial_positions):
     """
     可视化最优的巡逻方案。
     
     :param coords: n个点的二维坐标
     :param partition: {子图编号: 节点索引列表}
     :param robot_assignment: 每个子图的机器人数量
+    :param initial_positions: 机器人初始位置字典 {机器人编号: 二维坐标}
     """
     plt.figure(figsize=(10, 8))
     colors = plt.cm.get_cmap("tab10", len(partition))
@@ -167,6 +168,11 @@ def plot_patrolling_plan(coords, partition, robot_assignment):
         centroid = np.mean(sub_coords, axis=0)
         plt.text(centroid[0], centroid[1], f"{robot_assignment[subgraph_id]} robot", fontsize=12,
                  ha='center', va='center', color='red', bbox=dict(facecolor='white', alpha=0.6))
+    # 可视化机器人初始位置
+    for robot_id, position in initial_positions.items():
+        plt.scatter(position[0], position[1], color='black', marker='x', s=100, label=f"Robot {robot_id} initial position")
+        plt.text(position[0], position[1], f"Robot {robot_id}", fontsize=12, ha='left', color='black')
+
     
     plt.xlabel("X coordinate")
     plt.ylabel("Y coordinate")
@@ -338,8 +344,8 @@ weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0]
 m = 3
 
 best_partition, best_assignment, best_time, best_dwell_times, best_refresh_times, best_phi1_dict = find_best_patrolling_plan(coords, weights, m)
-plot_patrolling_plan(coords, best_partition, {i: robots for i, robots in enumerate(best_assignment)})
 initial_positions = solve_intial_position(best_partition, coords, best_assignment, best_dwell_times, best_refresh_times, best_phi1_dict)
+plot_patrolling_plan(coords, best_partition, {i: robots for i, robots in enumerate(best_assignment)}, initial_positions)
 
 print("最优分割方案:", best_partition)
 print("最优机器人分配方案 (子图编号: 机器人数量):")
