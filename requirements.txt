@@ -1,0 +1,11 @@
+qiskit
+numpy
+scipy
+matplotlib
+networkx
+qiskit-ibm-runtime
+gurobipy
+mosek
+psutil
+qiskit_aer
+ortools
