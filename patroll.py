@@ -225,6 +225,51 @@ def calculate_trajectory_for_leader_robot(tsp_path, node_coords, dwell_times, di
         current_time += travel_time  # 机器人移动的时间
     return trajectory, leader_index
 
+def calculate_trajectory_for_robot(tsp_path, node_coords, dwell_times, distance_matrix, initial_position, speed=1):
+    """
+    计算跟随机器人的完整周期运动轨迹，并返回分段点。
+    
+    :param tsp_path: 路径，包含访问节点的顺序
+    :param node_coords: 节点坐标
+    :param dwell_times: 每个节点的停留时间
+    :param distance_matrix: 距离矩阵
+    :param initial_position: 机器人的初始位置
+    :param speed: 机器人匀速移动的速度，默认为1
+    :return: 分段点列表 [(time, position)]
+    """
+    trajectory = []
+    current_time = 0.0
+    n = len(tsp_path)
+    # 寻找tsp_path中下一个目标位置
+    next_target, target_node_id = find_next_target(initial_position, tsp_path, node_coords)
+    # 计算初始位置到下一个目标位置的距离
+    initial_distance = euclidean(initial_position, next_target)
+    trajectory.append((current_time, initial_position))  # 初始位置的时间戳和位置
+    current_time += initial_distance / speed  # 移动到下一个目标位置的时间
+    shifted_tsp_path = shift_to_index(tsp_path, target_node_id)
+    for i in range(n-1):
+        node_current = shifted_tsp_path[i]
+        node_next = shifted_tsp_path[(i + 1) % n]  # 下一个节点（循环）
+        # 获取当前节点和下一个节点的坐标
+        coord_current = node_coords[node_current]
+        coord_next = node_coords[node_next]
+        # 计算从node_current到node_next的移动时间
+        distance = distance_matrix[node_current][node_next]
+        travel_time = distance / speed
+        # 记录当前节点和对应的停留时间
+        trajectory.append((current_time, coord_current))  # 当前节点的时间戳和位置
+        current_time += dwell_times[node_current]  # 停留时间
+        trajectory.append((current_time, coord_current))  # 停留后的时间戳
+        # 移动到下一个节点
+        current_time += travel_time  # 机器人移动的时间
+
+    # 计算返回初始位置的时间
+    distance_back = euclidean(coord_current, initial_position)
+    travel_time_back = distance_back / speed
+    current_time += travel_time_back  # 移动到初始位置的时间
+    trajectory.append((current_time, initial_position))  # 当前节点的时间戳和位置
+    return trajectory
+
 def shift_to_index(arr, index):
     if not arr:
         return arr
@@ -527,18 +572,87 @@ def plot_patrolling_plan(coords, partition, robot_assignment, raw_robot_position
     plt.show()
     plt.savefig("patrolling_plan.png")
 
+def get_robots_trajectories(robot_assignment, initial_positions, coords, dwell_times, partition, tsp_paths, distance_matrix):
+    """
+    计算每个机器人的完整周期运动轨迹，并返回分段点。
+    
+    :param robot_assignment: {子图编号: 机器人索引列表}
+    :param initial_positions: 机器人初始位置字典 {机器人编号: 二维坐标}
+    :param coords: n个点的二维坐标
+    :param dwell_times: 每个节点的停留时间
+    :param partition: {子图编号: 节点索引列表}
+    :param tsp_paths: {子图编号: TSP路径}
+    :param distance_matrix: 距离矩阵
+    
+    :return: 分段点列表 [(time, position)]
+    """
+    trajectories = {}
+    for subgraph_id, robots in robot_assignment.items():
+        # 将子图中所有节点的位置组合成一个字典
+        sub_coords = {}
+        for node in partition[subgraph_id]:
+            sub_coords[node] = coords[node]
+        for robot_id in robots:
+            robot_traj = calculate_trajectory_for_robot(
+                tsp_path=tsp_paths[subgraph_id],
+                node_coords=sub_coords,
+                dwell_times=dwell_times,
+                distance_matrix=distance_matrix,
+                initial_position=initial_positions[robot_id],
+                speed=1
+            )
+            trajectories[robot_id] = robot_traj
+    return trajectories
 
-coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5), (14, 6)]
-raw_robot_positions = {0: (1, 2), 1: (3, 4), 2: (5, 6), 3: (7,8)}
-# raw_robot_positions = {0: (8, 4), 1: (7, 5), 2: (5, 6)}
+def find_next_target(robot_pos, tsp_path, node_coords):
+    n = len(tsp_path)
+    
+    # 找到机器人是否恰好在某个节点上
+    for id, node_pos in node_coords.items():
+        if np.allclose(robot_pos, node_pos, atol=1e-6):  # 机器人刚好在节点上
+            node_index = tsp_path.index(id)  # 在TSP路径中的索引
+            return node_coords[tsp_path[(node_index) % n]], node_index  # 下一个目标点
+    
+    # 机器人不在节点上，找到所在的路径段
+    for i in range(len(tsp_path) - 1):  # 遍历TSP路径
+        idx1, idx2 = tsp_path[i], tsp_path[i + 1]
+        A, B = np.array(node_coords[idx1]), np.array(node_coords[idx2])
+        
+        # 检查机器人是否在线段 AB 上
+        AB = B - A
+        AP = np.array(robot_pos) - A
+        proj = np.dot(AP, AB) / np.dot(AB, AB)  # 计算投影比例
+        cross_product = np.cross(AB, AP)  # 计算叉积
+        if np.linalg.norm(cross_product) > 1e-6:  # 机器人不在AB线段上
+            continue
+        if 0 <= proj <= 1:  # 机器人确实在AB线段上
+            return tuple(node_coords[idx2]), tsp_path.index(idx2)  # 返回 B 作为下一个目标
+    
+    return None  # 机器人不在任何TSP路径上
 
-weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0, 4.0]
+# coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5), (14, 6)]
+coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5)]
+
+# raw_robot_positions = {0: (1, 2), 1: (3, 4), 2: (5, 6), 3: (7,8)}
+raw_robot_positions = {0: (8, 4), 1: (7, 5), 2: (5, 6)}
+
+# weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0, 4.0]
+weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0]
+
 # 机器人数量
 m = max(raw_robot_positions.keys()) + 1
 
 best_partition, best_assignment, best_time, best_dwell_times, best_refresh_times, best_phi1_dict = find_best_patrolling_plan(coords, weights, m)
 robot_assignment = optimal_robot_assignment_min_cost_flow(raw_robot_positions, best_assignment, best_partition, coords)
 initial_positions = solve_intial_position_(best_partition, coords, robot_assignment, best_dwell_times, best_refresh_times, best_phi1_dict)
+
+# 每个机器人的轨迹
+tsp_paths = {}
+distance_matrix_ = np.array([[euclidean(coords[i], coords[j]) for j in range(len(coords))] for i in range(len(coords))])
+
+for j, nodes in best_partition.items():
+    _, tsp_paths[j] = tsp_length_and_path(nodes, distance_matrix_)
+robot_trajectories = get_robots_trajectories(robot_assignment, initial_positions, coords, best_dwell_times, best_partition, tsp_paths, distance_matrix_)
 plot_patrolling_plan(coords, best_partition, robot_assignment, raw_robot_positions, initial_positions)
 
 print("最优分割方案:", best_partition)
@@ -553,6 +667,8 @@ for i in range(m):
 print("最小的最大刷新时间:", best_time)
 for i, time in best_dwell_times.items():
     print(f"节点 {i} 的停留时间: {time}")
-
+for i, traj in robot_trajectories.items():
+    print(f"机器人 {i} 的完整周期运动轨迹: {traj}")
+    print("\n")
 
 
