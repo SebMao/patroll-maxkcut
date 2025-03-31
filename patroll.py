@@ -4,6 +4,7 @@ import networkx as nx
 from scipy.spatial.distance import pdist, squareform, euclidean
 from itertools import combinations
 from collections import defaultdict
+from ortools.graph.python import min_cost_flow
 from scipy.optimize import linear_sum_assignment
 
 
@@ -323,6 +324,71 @@ def optimal_robot_assignment(raw_robot_positions, best_assignment, partition, co
     
     return robot_assignment
 
+def optimal_robot_assignment_min_cost_flow(raw_robot_positions, best_assignment, best_partition, coords):
+    """
+    使用最小费用流算法找到最优的机器人分配方案。
+    
+    :param raw_robot_positions: 机器人原始坐标，字典{机器人编号: (x, y)}
+    :param best_assignment: 每个子图所需的机器人数量，字典{子图编号: 机器人数量}
+    :param best_partition: 每个子图包含的节点标号，字典{子图编号: 节点索引列表}
+    :param coords: 所有节点的坐标，列表[(x1, y1), (x2, y2), ...]
+    :return: 最优的机器人分配方案，字典{子图编号: 机器人索引列表}
+    """
+
+    scale_factor = 1_000_000
+    centroids = {}
+    for subgraph_id, nodes in best_partition.items():
+        sub_coords = np.array([coords[i] for i in nodes])
+        centroids[subgraph_id] = np.mean(sub_coords, axis=0)  # 计算质心
+        
+    # 计算机器人到子图质心的距离
+    distances = []
+    for robot_id, robot_pos in raw_robot_positions.items():
+        distances.append([euclidean(robot_pos, centroids[subgraph_id]) for subgraph_id in best_partition.keys()])
+    scaled_distances = [[int(d * scale_factor) for d in row] for row in distances]
+    smcf = min_cost_flow.SimpleMinCostFlow()
+    m = len(distances)
+    k = len(best_assignment)  # 子图数量
+    n_i = best_assignment  # 每个子图所需的机器人数量
+    # 节点编号：0源，1~m机器人，m+1~m+k子图，m+k+1汇
+    source = 0
+    sink = m + k + 1
+    robot_nodes = list(range(1, m+1))
+    subgraph_nodes = list(range(m+1, m+k+1))
+
+        # 源到机器人
+    for j in robot_nodes:
+        smcf.add_arc_with_capacity_and_unit_cost(source, j, 1, 0)
+    
+    # 机器人到子图
+    for idx, j in enumerate(robot_nodes):
+        for i in range(k):
+            smcf.add_arc_with_capacity_and_unit_cost(j, subgraph_nodes[i], 1, scaled_distances[idx][i])
+    
+    # 子图到汇
+    for i in range(k):
+        smcf.add_arc_with_capacity_and_unit_cost(subgraph_nodes[i], sink, n_i[i], 0)
+    
+    # 设置供需
+    smcf.set_node_supply(source, m)
+    smcf.set_node_supply(sink, -m)
+    for node in robot_nodes + subgraph_nodes:
+        smcf.set_node_supply(node, 0)
+    
+    status = smcf.solve()
+    if status != smcf.OPTIMAL:
+        return None
+    
+    # 解析结果
+    subgraph_ids = list(centroids.keys())
+    robot_assignment = {subgraph_id: [] for subgraph_id in subgraph_ids}
+    for arc in range(smcf.num_arcs()):
+        if smcf.tail(arc) in robot_nodes and smcf.flow(arc) > 0:
+            robot = smcf.tail(arc) - 1
+            subgraph = smcf.head(arc) - (m+1)
+            robot_assignment[subgraph].append(robot)
+    return robot_assignment
+
 def solve_intial_position_(partition, coords, robot_assignment, global_dwell_times, refresh_times, phi1_dict):
     """
     计算每个机器人的初始位置。
@@ -477,7 +543,7 @@ weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0]
 m = 3
 
 best_partition, best_assignment, best_time, best_dwell_times, best_refresh_times, best_phi1_dict = find_best_patrolling_plan(coords, weights, m)
-robot_assignment = optimal_robot_assignment(raw_robot_positions, best_assignment, best_partition, coords)
+robot_assignment = optimal_robot_assignment_min_cost_flow(raw_robot_positions, best_assignment, best_partition, coords)
 initial_positions = solve_intial_position_(best_partition, coords, robot_assignment, best_dwell_times, best_refresh_times, best_phi1_dict)
 plot_patrolling_plan(coords, best_partition, robot_assignment, raw_robot_positions, initial_positions)
 
