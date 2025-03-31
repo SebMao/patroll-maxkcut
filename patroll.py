@@ -134,59 +134,6 @@ def generate_valid_assignments(m, k):
         yield tuple(assignment)
 
 
-def plot_patrolling_plan(coords, partition, robot_assignment, initial_positions):
-    """
-    可视化最优的巡逻方案。
-    
-    :param coords: n个点的二维坐标
-    :param partition: {子图编号: 节点索引列表}
-    :param robot_assignment: 每个子图的机器人数量
-    :param initial_positions: 机器人初始位置字典 {机器人编号: 二维坐标}
-    """
-    plt.figure(figsize=(10, 8))
-    colors = plt.cm.get_cmap("tab10", len(partition))
-
-    for subgraph_id, nodes in partition.items():
-        sub_coords = np.array([coords[i] for i in nodes])
-        
-        # 绘制节点
-        plt.scatter(sub_coords[:, 0], sub_coords[:, 1], color=colors(subgraph_id), label=f"{subgraph_id}")
-        if(len(nodes) == 1):
-            continue
-        # 计算TSP路径并绘制
-        G = nx.complete_graph(len(nodes))
-        for i, j in G.edges():
-            G[i][j]['weight'] = np.linalg.norm(sub_coords[i] - sub_coords[j])
-        tsp_path = nx.approximation.traveling_salesman_problem(G, cycle=True)
-        for i in range(len(tsp_path) - 1):
-            plt.plot([sub_coords[tsp_path[i]][0], sub_coords[tsp_path[i + 1]][0]],
-                     [sub_coords[tsp_path[i]][1], sub_coords[tsp_path[i + 1]][1]],
-                     color=colors(subgraph_id), linestyle='--', alpha=0.7)
-        
-        # 标注点索引
-        for idx, (x, y) in zip(nodes, sub_coords):
-            plt.text(x, y, str(idx), fontsize=12, ha='right', color='black')
-        
-        # 在子图中心标注机器人数量
-        centroid = np.mean(sub_coords, axis=0)
-        plt.text(centroid[0], centroid[1], f"{robot_assignment[subgraph_id]} robot", fontsize=12,
-                 ha='center', va='center', color='red', bbox=dict(facecolor='white', alpha=0.6))
-    # 可视化机器人初始位置
-    for robot_id, position in initial_positions.items():
-        plt.scatter(position[0], position[1], color='black', marker='x', s=100, label=f"Robot {robot_id} initial position")
-        plt.text(position[0], position[1], f"Robot {robot_id}", fontsize=12, ha='left', color='black')
-
-    
-    plt.xlabel("X coordinate")
-    plt.ylabel("Y coordinate")
-    plt.title("patrolling plan")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-    plt.savefig("patrolling_plan.png")
-
-
-
 def find_best_patrolling_plan(coords, weights, m):
     """
     计算全局最优的机器人巡逻方案。
@@ -232,30 +179,38 @@ def find_best_patrolling_plan(coords, weights, m):
     
     return best_partition, best_assignment, best_time, best_dwell_times, best_refresh_times, best_phi1
 
-def calculate_trajectory_for_robot_0(tsp_path, dwell_times, distance_matrix, speed=1):
+def calculate_trajectory_for_leader_robot(tsp_path, node_coords, dwell_times, distance_matrix, raw_robot_positions, robot_list, speed=1):
     """
     计算0号机器人的完整周期运动轨迹，并返回分段点。
     
     :param tsp_path: 0号机器人TSP路径，包含访问节点的顺序
     :param dwell_times: 每个节点的停留时间
     :param distance_matrix: 距离矩阵
+    :param raw_robot_positions: 机器人原始位置字典 {机器人编号: 二维坐标}
     :param speed: 机器人匀速移动的速度，默认为1
+    :param robot_list: 子图包含机器人的编号列表
     :return: 分段点列表 [(time, position)]
     """
     trajectory = []
     current_time = 0
     n = len(tsp_path)
-    
-    # 0号机器人从路径的第一个节点开始
-     # 0号机器人从路径的第一个节点开始
+
+    # 计算列表中机器人的初始位置与tsp_path中包含节点的位置的距离矩阵
+    distance_matrix_ = np.array([[euclidean(raw_robot_positions[i], node_coords[j]) for j in tsp_path[:-1]] for i in robot_list])
+    # 找到距离矩阵中最小值的索引
+    min_index = np.unravel_index(np.argmin(distance_matrix_), distance_matrix_.shape)
+    # 获取最小值的行和列索引
+    min_row_index, min_col_index = min_index
+    # 获取最小值对应的机器人编号和节点编号
+    leader_index = robot_list[min_row_index]
+    # 将tsp_path进行旋转，以leader_node_index为起点，[1,2,3,4,1] -> [2,3,4,1,2]
+    tsp_path = shift_to_index(tsp_path, min_col_index)
     for i in range(n):
         node_current = tsp_path[i]
         node_next = tsp_path[(i + 1) % n]  # 下一个节点（循环）
         
         # 获取当前节点和下一个节点的坐标
-        coord_current = coords[node_current]
-        coord_next = coords[node_next]
-        
+        coord_current = coords[node_current]        
         # 计算从node_current到node_next的移动时间
         distance = distance_matrix[node_current][node_next]
         travel_time = distance / speed
@@ -267,12 +222,16 @@ def calculate_trajectory_for_robot_0(tsp_path, dwell_times, distance_matrix, spe
         
         # 移动到下一个节点
         current_time += travel_time  # 机器人移动的时间
-        # trajectory.append((current_time, coord_next))  # 记录到达下一个节点的时间戳
-    # node_current = tsp_path[0]
-    # coord_current = coords[node_current]
-    # trajectory.append((current_time, coord_current))
-    
-    return trajectory
+    return trajectory, leader_index
+
+def shift_to_index(arr, index):
+    if not arr:
+        return arr
+    n = len(arr)
+    truncated_arr = arr[:-1]
+    shifted_arr = truncated_arr[index:] + truncated_arr[:index]
+    shifted = shifted_arr + [shifted_arr[0]]
+    return shifted
 
 def interpolate_position(trajectory, time):
     """
@@ -364,7 +323,19 @@ def optimal_robot_assignment(raw_robot_positions, best_assignment, partition, co
     
     return robot_assignment
 
-def solve_intial_position(partition, coords, assignment, global_dwell_times, refresh_times, phi1_dict):
+def solve_intial_position_(partition, coords, robot_assignment, global_dwell_times, refresh_times, phi1_dict):
+    """
+    计算每个机器人的初始位置。
+    
+    :param partition: 子图分割方案 (字典 {子图编号: 节点索引列表})
+    :param coords: n个点的二维坐标
+    :param robot_assignment: 每个子图的机器人的编号列表
+    :param global_dwell_times: 每个节点的停留时间
+    :param refresh_times: 每个子图的刷新时间
+    :param phi1_dict: 每个子图的第m+1大权重
+    :return: 机器人初始位置字典 {机器人编号: 二维坐标}
+    """
+
     initial_positions = {}
     tsp_lengths = {}
     tsp_paths = {}
@@ -373,20 +344,17 @@ def solve_intial_position(partition, coords, assignment, global_dwell_times, ref
 
     for j, nodes in partition.items():
         tsp_lengths[j], tsp_paths[j] = tsp_length_and_path(nodes, distance_matrix_)
-    global_index = 0
-    for i, robots in enumerate(assignment):
-        nodes = partition[i]
-        # dwell_times_par = [global_dwell_times[i] for i in nodes]
-        robot_0_traj = calculate_trajectory_for_robot_0(tsp_path=tsp_paths[i], dwell_times=global_dwell_times, distance_matrix = distance_matrix_ )
-        # initial_positions[global_index] = robot_initial_position
-        for t in range(robots):
-            if t == 0:
-                initial_positions[global_index+t] = robot_0_traj[0][1]
+    for subgraph_id, robots in robot_assignment.items():
+        nodes = partition[subgraph_id]
+        leader_robot_traj, leader_index = calculate_trajectory_for_leader_robot(tsp_path=tsp_paths[subgraph_id], node_coords=coords, dwell_times=global_dwell_times, distance_matrix=distance_matrix_, raw_robot_positions=raw_robot_positions, robot_list=robots)
+        t = 1
+        for robot_id in robots:
+            if robot_id == leader_index:
+                initial_positions[robot_id] = leader_robot_traj[0][1]
             else:
-                initial_positions[global_index+t] = get_robot_initial_position(robot_0_traj, robots, refresh_times[i], phi1_dict[i],t)
-        global_index += robots
+                initial_positions[robot_id] = get_robot_initial_position(leader_robot_traj, len(robots), refresh_times[subgraph_id], phi1_dict[subgraph_id], t)
+                t += 1
     return initial_positions
-
 def assign_robots_to_subgraphs(raw_robot_positions, best_assignment, best_partition, coords):
     """
     将机器人分配到最近的子图，考虑机器人到子图节点的最短距离，返回最优的机器人分配方案。
@@ -437,7 +405,7 @@ def assign_robots_to_subgraphs(raw_robot_positions, best_assignment, best_partit
     return robot_assignment
 
 
-def plot_patrolling_plan2(coords, partition, robot_assignment, raw_robot_positions, initial_positions):
+def plot_patrolling_plan(coords, partition, robot_assignment, raw_robot_positions, initial_positions):
     """
     可视化最优的巡逻方案。
     
@@ -491,8 +459,8 @@ def plot_patrolling_plan2(coords, partition, robot_assignment, raw_robot_positio
     
     # 可视化机器人初始位置
     for robot_id, position in initial_positions.items():
-        plt.scatter(position[0], position[1], color='black', marker='o', s=100)
-        # plt.text(position[0], position[1], f"Robot {robot_id}", fontsize=12, ha='left', color='black')
+        plt.scatter(position[0], position[1], color='black', marker='o', s=100, label=f"Robot {robot_id} initial position")
+        plt.text(position[0], position[1], f"Robot {robot_id}", fontsize=12, ha='left', color='black')
 
     plt.xlabel("X coordinate")
     plt.ylabel("Y coordinate")
@@ -500,7 +468,7 @@ def plot_patrolling_plan2(coords, partition, robot_assignment, raw_robot_positio
     plt.legend()
     plt.grid(True)
     plt.show()
-    plt.savefig("patrolling_plan3.png")
+    plt.savefig("patrolling_plan.png")
 
 
 coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5)]
@@ -509,11 +477,9 @@ weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0]
 m = 3
 
 best_partition, best_assignment, best_time, best_dwell_times, best_refresh_times, best_phi1_dict = find_best_patrolling_plan(coords, weights, m)
-initial_positions = solve_intial_position(best_partition, coords, best_assignment, best_dwell_times, best_refresh_times, best_phi1_dict)
-plot_patrolling_plan(coords, best_partition, {i: robots for i, robots in enumerate(best_assignment)}, initial_positions)
-# robot_assignment = assign_robots_to_subgraphs(raw_robot_positions, best_assignment, best_partition, coords)
 robot_assignment = optimal_robot_assignment(raw_robot_positions, best_assignment, best_partition, coords)
-plot_patrolling_plan2(coords, best_partition, robot_assignment, raw_robot_positions, initial_positions)
+initial_positions = solve_intial_position_(best_partition, coords, robot_assignment, best_dwell_times, best_refresh_times, best_phi1_dict)
+plot_patrolling_plan(coords, best_partition, robot_assignment, raw_robot_positions, initial_positions)
 
 print("最优分割方案:", best_partition)
 print("最优机器人分配方案 (子图编号: 机器人数量):")
