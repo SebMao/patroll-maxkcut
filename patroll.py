@@ -287,40 +287,34 @@ def compute_subgraph_centroids(coords, partition):
         centroids[subgraph_id] = np.mean(sub_coords, axis=0)  # 计算质心
     return centroids
 
-def optimal_robot_assignment(raw_robot_positions, best_assignment, partition, coords):
+def optimal_robot_assignment_hungarian(raw_robot_positions, best_assignment, partition, coords):
     """ 使用匈牙利算法找到最优机器人分配 """
     centroids = compute_subgraph_centroids(coords, partition)
-    num_subgraphs = len(best_assignment)
-    num_robots = len(raw_robot_positions)
-    
-    # 计算机器人到子图质心的距离矩阵
-    cost_matrix = np.zeros((num_robots, num_subgraphs))
-    robot_ids = list(raw_robot_positions.keys())
     subgraph_ids = list(centroids.keys())
+    robot_ids = list(raw_robot_positions.keys())
+    # 计算机器人到子图质心的距离
+    distances = []
+    for robot_id, robot_pos in raw_robot_positions.items():
+        distances.append([euclidean(robot_pos, centroids[subgraph_id]) for subgraph_id in best_partition.keys()])
+
+    # 重复子图节点以满足 n_i 需求（例如 n_i=[2,1] → 子图0出现2次）
+    expanded_indices = []
+    for i, count in enumerate(best_assignment):
+        expanded_indices.extend([i] * count)
     
-    for i, robot_id in enumerate(robot_ids):
-        for j, subgraph_id in enumerate(subgraph_ids):
-            cost_matrix[i, j] = np.linalg.norm(raw_robot_positions[robot_id] - centroids[subgraph_id])
+    # 构建代价矩阵（机器人 x 展开后的子图需求）
+    cost_matrix = []
+    for robot_dists in distances:
+        cost_matrix.append([robot_dists[i] for i in expanded_indices])
     
-    # 使用匈牙利算法求解最优分配（初步一对一匹配）
+    # 使用匈牙利算法求解最优分配
     row_ind, col_ind = linear_sum_assignment(cost_matrix)
     
     # 生成最终的 robot_assignment
     robot_assignment = {subgraph_id: [] for subgraph_id in subgraph_ids}
-    assigned_robots = set()
-    
-    for robot_idx, subgraph_idx in zip(row_ind, col_ind):
-        robot_id = robot_ids[robot_idx]
-        subgraph_id = subgraph_ids[subgraph_idx]
-        robot_assignment[subgraph_id].append(robot_id)
-        assigned_robots.add(robot_id)
-    
-    # 调整分配以满足 best_assignment 规定的机器人数量
-    remaining_robots = [r for r in robot_ids if r not in assigned_robots]
-    for subgraph_idx, num_robots in enumerate(best_assignment):
-        subgraph_id = subgraph_ids[subgraph_idx]
-        while len(robot_assignment[subgraph_id]) < num_robots and remaining_robots:
-            robot_assignment[subgraph_id].append(remaining_robots.pop(0))
+    for robot_idx, expanded_idx in zip(row_ind, col_ind):
+        subgraph_idx = expanded_indices[expanded_idx]
+        robot_assignment[subgraph_idx].append(robot_idx)    
     
     return robot_assignment
 
@@ -336,10 +330,7 @@ def optimal_robot_assignment_min_cost_flow(raw_robot_positions, best_assignment,
     """
 
     scale_factor = 1_000_000
-    centroids = {}
-    for subgraph_id, nodes in best_partition.items():
-        sub_coords = np.array([coords[i] for i in nodes])
-        centroids[subgraph_id] = np.mean(sub_coords, axis=0)  # 计算质心
+    centroids = compute_subgraph_centroids(coords, best_partition)
         
     # 计算机器人到子图质心的距离
     distances = []
@@ -537,10 +528,13 @@ def plot_patrolling_plan(coords, partition, robot_assignment, raw_robot_position
     plt.savefig("patrolling_plan.png")
 
 
-coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5)]
-raw_robot_positions = {0: (8, 4), 1: (7, 5), 2: (5, 6)}
-weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0]
-m = 3
+coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5), (14, 6)]
+raw_robot_positions = {0: (1, 2), 1: (3, 4), 2: (5, 6), 3: (7,8)}
+# raw_robot_positions = {0: (8, 4), 1: (7, 5), 2: (5, 6)}
+
+weights = [1.5, 2.0, 1.2, 1.9, 2.5, 1.8, 2.2, 3.0, 6.0, 4.0]
+# 机器人数量
+m = max(raw_robot_positions.keys()) + 1
 
 best_partition, best_assignment, best_time, best_dwell_times, best_refresh_times, best_phi1_dict = find_best_patrolling_plan(coords, weights, m)
 robot_assignment = optimal_robot_assignment_min_cost_flow(raw_robot_positions, best_assignment, best_partition, coords)

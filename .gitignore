@@ -2,3 +2,5 @@
 max_k_cut/**/*.cpython-*.so
 max_k_cut/**/*.cpython-*.pyd
 max_k_cut/**/*.cpython-*.pyc
+
+results/
