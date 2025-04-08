@@ -6,6 +6,8 @@ from itertools import combinations
 from collections import defaultdict
 from ortools.graph.python import min_cost_flow
 from scipy.optimize import linear_sum_assignment
+from matplotlib.animation import FuncAnimation, PillowWriter
+
 
 
 def create_graph(coordinates):
@@ -629,6 +631,74 @@ def find_next_target(robot_pos, tsp_path, node_coords):
             return tuple(node_coords[idx2]), tsp_path.index(idx2)  # 返回 B 作为下一个目标
     
     return None  # 机器人不在任何TSP路径上
+def draw_static_background(ax, coords, partition, weights):
+    colors = plt.cm.get_cmap("tab10", len(partition))
+
+    for subgraph_id, nodes in partition.items():
+        sub_coords = np.array([coords[i] for i in nodes])
+        ax.scatter(sub_coords[:, 0], sub_coords[:, 1], color=colors(subgraph_id), label=f"Subgraph {subgraph_id}")
+        if len(nodes) == 1:
+            continue
+        G = nx.complete_graph(len(nodes))
+        for i, j in G.edges():
+            G[i][j]['weight'] = np.linalg.norm(sub_coords[i] - sub_coords[j])
+        tsp_path = nx.approximation.traveling_salesman_problem(G, cycle=True)
+        for i in range(len(tsp_path) - 1):
+            ax.plot([sub_coords[tsp_path[i]][0], sub_coords[tsp_path[i + 1]][0]],
+                    [sub_coords[tsp_path[i]][1], sub_coords[tsp_path[i + 1]][1]],
+                    color=colors(subgraph_id), linestyle='--', alpha=0.7)
+        for idx, (x, y) in zip(nodes, sub_coords):
+            ax.text(x, y, str(idx) +": " + str(weights[idx]), fontsize=10, ha='right', color='black')
+    ax.set_xlabel("X coordinate")
+    ax.set_ylabel("Y coordinate")
+    ax.set_title("Patrolling Plan")
+    ax.legend()
+    ax.grid(True)
+
+def animate_robot_patrolling(coords, weights, partition, robot_trajectories, interval=100):
+    """
+    可视化机器人的运动轨迹。
+    
+    :param coords: n个点的二维坐标
+    :param partition: {子图编号: 节点索引列表}
+    :param robot_trajectories: {机器人编号: 运动轨迹}
+    """
+    fig, ax = plt.subplots(figsize=(10, 8))
+    draw_static_background(ax, coords, partition, weights)
+
+    robot_ids = list(robot_trajectories.keys())
+    colors = plt.cm.get_cmap("tab10", len(robot_ids))
+    
+    # 初始化 scatter 对象
+    scatters = []
+    for i, robot_id in enumerate(robot_ids):
+        scatter, = ax.plot([], [], 'D', color=colors(i), label=f"Robot {robot_id}")
+        scatters.append(scatter)
+    # 获取整个周期的最大时间
+    max_time = max(max([pt[0] for pt in traj]) for traj in robot_trajectories.values())
+    # 生成所有时间点
+    times = np.arange(0, max_time, interval / 1000.0)  # interval 是毫秒
+
+    # 插值所有帧的机器人位置
+    snapshots = []
+    for t in times:
+        snapshot = {}
+        for robot_id, traj in robot_trajectories.items():
+            pos = interpolate_position(traj, t)
+            snapshot[robot_id] = pos
+        snapshots.append(snapshot)
+
+    def update(frame):
+        snap = snapshots[frame]
+        for i, robot_id in enumerate(robot_ids):
+            pos = snap[robot_id]
+            scatters[i].set_data([pos[0]], [pos[1]])  # 注意中括号
+        return scatters
+
+    ani = FuncAnimation(fig, update, frames=len(times), interval=interval, blit=True)
+
+    ani.save("robot_patrolling.gif", writer=PillowWriter(fps=1000 // interval))
+    plt.close()
 
 # coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5), (14, 6)]
 coords = [(4, 1), (2, 3), (5, 5), (8, 8), (12, 3), (6, 9), (14, 10), (7, 2),(10,5)]
@@ -654,7 +724,7 @@ for j, nodes in best_partition.items():
     _, tsp_paths[j] = tsp_length_and_path(nodes, distance_matrix_)
 robot_trajectories = get_robots_trajectories(robot_assignment, initial_positions, coords, best_dwell_times, best_partition, tsp_paths, distance_matrix_)
 plot_patrolling_plan(coords, best_partition, robot_assignment, raw_robot_positions, initial_positions)
-
+animate_robot_patrolling(coords, weights, best_partition, robot_trajectories, interval=100)
 print("最优分割方案:", best_partition)
 print("最优机器人分配方案 (子图编号: 机器人数量):")
 for i, robots in enumerate(best_assignment):
