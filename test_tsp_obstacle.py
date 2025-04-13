@@ -1,36 +1,29 @@
+
 import math
+from shapely.geometry import Point, LineString, Polygon
+from shapely.ops import nearest_points
 import heapq
-from shapely.geometry import LineString, Polygon, Point
+import networkx as nx
 import matplotlib.pyplot as plt
+import copy
 
 
 class VisibilityGraph:
-    def __init__(self, polygons, epsilon=1e-9):
+    def __init__(self, polygons):
         self.polygons = polygons
-        self.vertices = self.extract_vertices()
-        self.edges = self.extract_edges()
-        self.epsilon = epsilon
+        self.edges = self._extract_edges()
         self.graph = self.build_visibility_graph()
 
-    def extract_vertices(self):
-        vertices = []
-        for poly in self.polygons:
-            coords = list(poly.exterior.coords)[:-1]  # Remove duplicate last point
-            vertices.extend([Point(p) for p in coords])
-        return vertices
-
-    def extract_edges(self):
-        edges = set()
+    def _extract_edges(self):
+        edges = []
         for poly in self.polygons:
             coords = list(poly.exterior.coords)
             for i in range(len(coords) - 1):
-                edges.add(LineString([coords[i], coords[i + 1]]))
+                edges.append(LineString([coords[i], coords[i + 1]]))
         return edges
 
     def is_visible(self, p1, p2):
         segment = LineString([p1, p2])
-
-        # Check if the segment intersects any polygon edge (excluding shared endpoints)
         for edge in self.edges:
             if segment.crosses(edge):
                 return False
@@ -47,21 +40,20 @@ class VisibilityGraph:
         return True
 
     def build_visibility_graph(self):
-        graph = {tuple(v.coords)[0]: {} for v in self.vertices}
-        points = list(graph.keys())
-        n = len(points)
-
-        for i in range(n):
-            for j in range(i + 1, n):
+        points = [tuple(p) for poly in self.polygons for p in poly.exterior.coords[:-1]]
+        graph = {p: {} for p in points}
+        for i in range(len(points)):
+            for j in range(i + 1, len(points)):
                 if self.is_visible(points[i], points[j]):
                     dist = math.dist(points[i], points[j])
                     graph[points[i]][points[j]] = dist
-                    graph[points[j]][points[i]] = dist  # Symmetric
+                    graph[points[j]][points[i]] = dist
         return graph
 
     def add_point_to_graph(self, point):
-        """Adds start or goal point to visibility graph."""
         point_t = tuple(point)
+        if point_t in self.graph:
+            return  # already added
         self.graph[point_t] = {}
         for v in self.graph.keys():
             if v == point_t:
@@ -71,13 +63,18 @@ class VisibilityGraph:
                 self.graph[point_t][v] = dist
                 self.graph[v][point_t] = dist
 
-    def shortest_path(self, start, goal):
+    def dijkstra(self, start, goal):
         start = tuple(start)
         goal = tuple(goal)
 
         # Add start and goal into the graph
-        self.add_point_to_graph(start)
-        self.add_point_to_graph(goal)
+        added_nodes = []
+        if start not in self.graph:
+            self.add_point_to_graph(start)
+            added_nodes.append(start)
+        if goal not in self.graph:
+            self.add_point_to_graph(goal)
+            added_nodes.append(goal)
 
         # Dijkstra's algorithm
         queue = [(0, start)]
@@ -103,7 +100,16 @@ class VisibilityGraph:
             u = previous[u]
         path.append(start)
         path.reverse()
+
+        # Clean up added nodes
+        for node in added_nodes:
+            for neighbor in self.graph[node]:
+                if node in self.graph[neighbor]:
+                    del self.graph[neighbor][node]
+            del self.graph[node]
         return path
+
+
 
 def plot_visibility_graph(vg: VisibilityGraph, path=None, start=None, goal=None):
     fig, ax = plt.subplots(figsize=(8, 8))
@@ -135,20 +141,71 @@ def plot_visibility_graph(vg: VisibilityGraph, path=None, start=None, goal=None)
     ax.set_aspect('equal')
     ax.legend(loc='best')
     plt.grid(True)
-    plt.savefig('shortest_path.png', dpi=300)
+    plt.savefig('visibility_graph.png', dpi=300)
     plt.show()
 
+def compute_all_pairs_paths(vg, points):
+    """Returns a dict of shortest paths and distances between all pairs of points"""
+    n = len(points)
+    path_dict = {}
+    dist_graph = nx.Graph()
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            p1, p2 = tuple(points[i]), tuple(points[j])
+            path = vg.dijkstra(p1, p2)
+            if path is None:
+                continue
+            dist = sum(math.dist(path[k], path[k+1]) for k in range(len(path)-1))
+            path_dict[(p1, p2)] = path
+            path_dict[(p2, p1)] = list(reversed(path))
+            dist_graph.add_edge(p1, p2, weight=dist)
+    return path_dict, dist_graph
+
+def solve_tsp_path(dist_graph):
+    tsp_path = nx.approximation.traveling_salesman_problem(dist_graph, cycle=False)
+    return tsp_path
+
+def reconstruct_full_path(tsp_path, path_dict):
+    full_path = []
+    for i in range(len(tsp_path)):
+        p1 = tsp_path[i]
+        p2 = tsp_path[(i + 1) % len(tsp_path)]
+        segment = path_dict.get((p1, p2))
+        if segment:
+            if full_path and segment[0] == full_path[-1]:
+                full_path.extend(segment[1:])
+            else:
+                full_path.extend(segment)
+    return full_path
+
+def visualize(polygons, points, path):
+    fig, ax = plt.subplots()
+    for poly in polygons:
+        xs, ys = poly.exterior.xy
+        ax.plot(xs, ys, 'k-')
+    for x, y in points:
+        ax.plot(x, y, 'ro')
+    if path:
+        xs, ys = zip(*path)
+        ax.plot(xs, ys, 'b--')
+    plt.axis('equal')
+    plt.savefig('tsp_obstacles.png', dpi=300)
+    plt.show()
+
+
 if __name__ == "__main__":
-    # 定义障碍物
     polygons = [
         Polygon([(1, 1), (1, 3), (2, 3), (2, 1)]),
         Polygon([(4, 4), (5, 4), (5, 5), (4, 5)]),
     ]
+    target_points = [(0, 0), (2, 4), (6, 6), (3, 3), (3, 1)]
 
     vg = VisibilityGraph(polygons)
-    start = (0, 2)
-    goal = (6, 6)
+    path_dict, dist_graph = compute_all_pairs_paths(vg, target_points)
+    tsp_path = solve_tsp_path(dist_graph)
+    full_path = reconstruct_full_path(tsp_path, path_dict)
+    print("Shortest path:", full_path)
+    print("tsp_path:", tsp_path)
+    visualize(polygons, target_points, full_path)
 
-    path = vg.shortest_path(start, goal)
-    plot_visibility_graph(vg, path=path, start=start, goal=goal)
-    print("Shortest path:", path)
