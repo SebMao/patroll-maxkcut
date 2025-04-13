@@ -9,3 +9,4 @@ mosek
 psutil
 qiskit_aer
 ortools
+shapely
