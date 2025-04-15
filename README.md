@@ -1,6 +1,6 @@
 ## 相关库的安装
 ```
-conda create -n patroll python==3.8
+conda create -n patroll python=3.8
 conda activate patroll
 pip3 install -r requirements.txt
 ```
