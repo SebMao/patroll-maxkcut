@@ -5,6 +5,7 @@ from shapely.ops import nearest_points
 import heapq
 import networkx as nx
 import matplotlib.pyplot as plt
+import numpy as np
 import copy
 
 
@@ -149,6 +150,7 @@ def compute_all_pairs_paths(vg, points):
     n = len(points)
     path_dict = {}
     dist_graph = nx.Graph()
+    dist_matrix = np.zeros((n, n))
 
     for i in range(n):
         for j in range(i + 1, n):
@@ -160,7 +162,9 @@ def compute_all_pairs_paths(vg, points):
             path_dict[(p1, p2)] = path
             path_dict[(p2, p1)] = list(reversed(path))
             dist_graph.add_edge(p1, p2, weight=dist)
-    return path_dict, dist_graph
+            dist_matrix[i, j] = dist
+            dist_matrix[j, i] = dist
+    return path_dict, dist_graph, dist_matrix
 
 def solve_tsp_path(dist_graph):
     tsp_path = nx.approximation.traveling_salesman_problem(dist_graph, cycle=False)
@@ -198,6 +202,7 @@ if __name__ == "__main__":
     polygons = [
         Polygon([(1, 1), (1, 3), (2, 3), (2, 1)]),
         Polygon([(4, 4), (5, 4), (5, 5), (4, 5)]),
+        Polygon([(4, 2.5), (5, 2.5), (5, 3.5), (4, 3.5)]),
     ]
     target_points = [(0, 0), (2, 4), (6, 6), (3, 3), (3, 1)]
 
